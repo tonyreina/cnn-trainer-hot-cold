@@ -1030,7 +1030,7 @@
       if (batchHistory.length > 12) batchHistory.shift();
       document.getElementById('batch-history').innerHTML = batchHistory.map(n => {
         const h = Math.max(4, (n / BATCH_SIZE) * 100);
-        const color = n / BATCH_SIZE < 0.4 ? 'bg-blue-500' : n / BATCH_SIZE < 0.75 ? 'bg-amber-500' : 'bg-rose-500';
+        const color = n / BATCH_SIZE < 0.4 ? 'bg-red-500' : n / BATCH_SIZE < 0.75 ? 'bg-yellow-400' : 'bg-green-500';
         return `<div class="flex-1 flex flex-col items-center justify-end h-full gap-0.5">
           <span class="text-[9px] font-mono-code text-slate-400">${n}</span>
           <div class="w-full rounded-sm ${color}" style="height:${h * 0.6}%"></div></div>`;
