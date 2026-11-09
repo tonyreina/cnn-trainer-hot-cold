@@ -787,6 +787,47 @@
           </div>
 
         </div>
+
+        <!-- Full width: Batch of chest X-rays vs radiologist annotations -->
+        <div class="lg:col-span-12 bg-slate-950 rounded-xl p-5 border border-slate-800 space-y-4">
+          <div class="flex items-start justify-between flex-wrap gap-3">
+            <div>
+              <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                <i class="fa-solid fa-x-ray text-cyan-400"></i> Training Batch: Chest X-rays vs. Radiologist Annotations
+              </span>
+              <p class="text-[11px] text-slate-400 max-w-2xl">
+                Each round, the CNN loads a fresh batch of X-rays and calls each one "Normal" or "Pneumonia". The
+                referee checks every call against the radiologist's label (and the box they drew around the opacity).
+                ✓ = CNN agrees with the radiologist, ✗ = CNN got it wrong.
+              </p>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="text-[11px] font-mono-code text-cyan-400 bg-slate-900 px-2 py-1 rounded border border-slate-800">
+                Round <span id="batch-round" class="text-white font-bold">0</span>
+              </div>
+              <div class="bg-slate-900 px-3 py-1 rounded border border-slate-800 text-right">
+                <div class="text-[10px] text-slate-400">Correct in this batch</div>
+                <div class="text-lg font-bold font-mono-code text-white leading-tight">
+                  <span id="batch-correct">0</span> / <span id="batch-total">12</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="batch-grid" class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3"></div>
+
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono-code">
+              <span>Batch score per round (last 12 rounds)</span>
+              <span class="flex items-center gap-3">
+                <span class="flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 border border-dashed border-amber-400"></span> radiologist box</span>
+                <span class="text-emerald-400">✓ correct</span>
+                <span class="text-rose-400">✗ wrong</span>
+              </span>
+            </div>
+            <div id="batch-history" class="flex items-end gap-1.5 h-12"></div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -904,6 +945,96 @@
 
       // Redraw Sparkline dynamically
       updateLossChart(pct);
+
+      // Load and grade a fresh batch of X-rays
+      renderBatch((12.4 + 86.7 * (pct / 100)) / 100);
+    }
+
+    // ---- Chest X-ray batch ----
+    const BATCH_SIZE = 12;
+    let batchRound = 0;
+    let batchHistory = [];
+
+    function rand(a, b) { return a + Math.random() * (b - a); }
+
+    function xraySVG(isPneumonia, box) {
+      const lung = (cx) => `<ellipse cx="${cx}" cy="52" rx="19" ry="31" fill="url(#lg)"/>`;
+      let opacity = '', boxEl = '';
+      if (isPneumonia) {
+        opacity = `<ellipse cx="${box.x}" cy="${box.y}" rx="${box.r}" ry="${box.r * 0.85}" fill="#e2e8f0" opacity="0.85" filter="url(#bl)"/>`;
+        boxEl = `<rect x="${box.x - box.r - 3}" y="${box.y - box.r - 3}" width="${(box.r + 3) * 2}" height="${(box.r + 3) * 2}" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="3 2"/>`;
+      }
+      let ribs = '';
+      for (let i = 0; i < 6; i++) {
+        const y = 28 + i * 8;
+        ribs += `<path d="M 50 ${y} Q 28 ${y - 4} 14 ${y + 6} M 50 ${y} Q 72 ${y - 4} 86 ${y + 6}" stroke="#94a3b8" stroke-opacity="0.18" stroke-width="1.6" fill="none"/>`;
+      }
+      return `<svg viewBox="0 0 100 100" class="w-full h-full">
+        <defs>
+          <radialGradient id="lg"><stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#1e293b"/></radialGradient>
+          <filter id="bl"><feGaussianBlur stdDeviation="3"/></filter>
+        </defs>
+        <rect width="100" height="100" fill="#475569" fill-opacity="0.55"/>
+        <path d="M 10 100 Q 14 40 50 14 Q 86 40 90 100 Z" fill="#64748b" fill-opacity="0.5"/>
+        ${lung(34)}${lung(66)}${ribs}
+        <rect x="47.5" y="14" width="5" height="86" fill="#cbd5e1" fill-opacity="0.45"/>
+        <ellipse cx="58" cy="70" rx="11" ry="14" fill="#94a3b8" fill-opacity="0.45"/>
+        ${opacity}${boxEl}
+      </svg>`;
+    }
+
+    function renderBatch(accFrac) {
+      const grid = document.getElementById('batch-grid');
+      if (!grid) return;
+
+      // Fresh batch: random mix of normal / pneumonia, random lung location
+      const items = [];
+      for (let i = 0; i < BATCH_SIZE; i++) {
+        const pneu = Math.random() < 0.5;
+        const side = Math.random() < 0.5 ? 34 : 66;
+        items.push({
+          truth: pneu ? 'Pneumonia' : 'Normal',
+          pneu,
+          box: { x: side + rand(-6, 6), y: rand(38, 66), r: rand(8, 12) }
+        });
+      }
+
+      // Number correct grows with training; which images are correct is random each round
+      const nCorrect = Math.round(accFrac * BATCH_SIZE);
+      const order = items.map((_, i) => i).sort(() => Math.random() - 0.5);
+      const correct = new Set(order.slice(0, nCorrect));
+
+      grid.innerHTML = items.map((it, i) => {
+        const ok = correct.has(i);
+        const pred = ok ? it.truth : (it.pneu ? 'Normal' : 'Pneumonia');
+        const border = ok ? 'border-emerald-600/70' : 'border-rose-600/70';
+        return `<div class="bg-slate-900 rounded-lg border ${border} overflow-hidden">
+          <div class="aspect-square bg-black relative">
+            ${xraySVG(it.pneu, it.box)}
+            <div class="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold ${ok ? 'bg-emerald-500 text-slate-950' : 'bg-rose-500 text-white'}">${ok ? '✓' : '✗'}</div>
+          </div>
+          <div class="px-2 py-1.5 text-[10px] font-mono-code leading-snug">
+            <div class="text-amber-300">Rad: ${it.truth}</div>
+            <div class="${ok ? 'text-emerald-400' : 'text-rose-400'}">CNN: ${pred}</div>
+          </div>
+        </div>`;
+      }).join('');
+
+      document.getElementById('batch-round').innerText = batchRound;
+      document.getElementById('batch-correct').innerText = nCorrect;
+      document.getElementById('batch-total').innerText = BATCH_SIZE;
+
+      // History of per-round batch scores
+      if (batchRound > 0 || batchHistory.length === 0) batchHistory.push(nCorrect);
+      else batchHistory[0] = nCorrect;
+      if (batchHistory.length > 12) batchHistory.shift();
+      document.getElementById('batch-history').innerHTML = batchHistory.map(n => {
+        const h = Math.max(4, (n / BATCH_SIZE) * 100);
+        const color = n / BATCH_SIZE < 0.4 ? 'bg-blue-500' : n / BATCH_SIZE < 0.75 ? 'bg-amber-500' : 'bg-rose-500';
+        return `<div class="flex-1 flex flex-col items-center justify-end h-full gap-0.5">
+          <span class="text-[9px] font-mono-code text-slate-400">${n}</span>
+          <div class="w-full rounded-sm ${color}" style="height:${h * 0.6}%"></div></div>`;
+      }).join('');
     }
 
     function updateLossChart(pct) {
@@ -923,6 +1054,7 @@
 
     function trainStep(steps) {
       currentStep = Math.min(maxSteps, currentStep + steps);
+      batchRound++;
       updateSimulationUI();
       if (currentStep >= maxSteps && autoInterval) {
         toggleAutoTrain();
@@ -952,6 +1084,8 @@
     function resetTraining() {
       if (autoInterval) toggleAutoTrain();
       currentStep = 0;
+      batchRound = 0;
+      batchHistory = [];
       weights = {
         a: -0.82, b: 0.14, c: 1.65,
         d: -0.44, e: 0.98, f: -0.05,
